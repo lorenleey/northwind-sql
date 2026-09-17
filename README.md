@@ -24,3 +24,9 @@ Nombre y apellidos: Lorenley Rodriguez
 
 Adicional tenemos el resultado de una consulta con todas las relaciones presentes en northwind
       ![Relaciones Norhtwind](img/postgresql_relaciones.png)
+
+## Resolución de ejercicios
+
+Las 20 consultas SQL de la práctica, junto con sus resultados y explicaciones, están disponibles en:
+
+➡️ Ver respuestas (respuestas.md)
