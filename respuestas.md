@@ -604,3 +604,205 @@ SELECT
 
 **Comentario:**
 Las CTE separan el cálculo en etapas: facturación por cliente, creación de cuartiles y asignación del segmento. NTILE(4) ordena de mayor a menor facturación, por lo que el primer cuartil representa a los clientes de mayor valor. 
+
+## Pregunta 18 — Los tres productos más vendidos de cada categoría
+**Enunciado:** Para cada categoría, obtén los **tres productos con mayor facturación**. Muestra la categoría, la posición dentro de la categoría, el nombre del producto, las unidades vendidas y la facturación.
+
+Incluye además una columna con la posición global del producto en el conjunto de la compañía, para que se vea qué productos son líderes de su nicho pero irrelevantes en el total.
+
+**Consulta:**
+
+```sql
+-- Tres productos con mayor facturación de cada categoría y posición global
+WITH ventas_producto AS (
+	SELECT c.category_name AS categoria, 
+			p.product_name AS producto, 
+			SUM(od.quantity) AS unidades,
+			 SUM(
+            od.unit_price::numeric * od.quantity *
+            (1 - od.discount::numeric)
+        ) AS facturacion
+	FROM categories c
+	INNER JOIN products p
+			ON c.category_id = p.category_id
+	INNER JOIN order_details od 
+			ON p.product_id = od.product_id
+	GROUP BY c.category_name, p.product_id, p.product_name
+),
+ranking AS (
+	SELECT *,
+	ROW_NUMBER() OVER (
+			PARTITION BY categoria
+			ORDER BY facturacion DESC, producto
+			) AS posicion_en_categoria,
+	RANK() OVER (
+			ORDER BY facturacion DESC 
+			) AS posicion_global
+		FROM ventas_producto
+)
+-- Consulta 
+SELECT categoria, 
+		posicion_en_categoria, 
+		producto, 
+		unidades, 
+		ROUND(facturacion,2 ) AS facturacion, 
+		posicion_global
+FROM ranking
+WHERE posicion_en_categoria <= 3
+ORDER BY categoria, posicion_en_categoria;
+```
+
+**Resultado:**
+
+![Resultado pregunta 18](img/p18.png)
+
+**Comentario:**
+ROW_NUMBER() permite obtener exactamente tres productos por categoría, incluso si existen empates. El RANK() sin PARTITION BY calcula además la posición del producto respecto al conjunto completo de la compañía.
+
+## Pregunta 19 — Evolución mensual con acumulado y media móvil
+**Enunciado:** Control de gestión prepara el cuadro de mando de la evolución del negocio durante 1997.
+
+Para cada mes de 1997, calcula:
+
+- La facturación del mes.
+- El total acumulado desde enero.
+- La media móvil de los tres últimos meses (el mes actual y los dos anteriores).
+- La facturación del mes anterior.
+- La variación porcentual respecto al mes anterior.
+
+**Consulta:**
+
+```sql
+-- Evolución mensual de la facturación durante 1997
+-- Evolución mensual de la facturación durante 1997
+WITH ventas_mensuales AS (
+    SELECT
+        DATE_TRUNC('month', o.order_date)::date AS mes,
+        SUM(
+            od.unit_price::numeric * od.quantity *
+            (1 - od.discount::numeric)
+        ) AS facturacion
+    FROM orders o
+    INNER JOIN order_details od
+        ON o.order_id = od.order_id
+    WHERE o.order_date >= DATE '1997-01-01'
+        AND o.order_date < DATE '1998-01-01'
+    GROUP BY DATE_TRUNC('month', o.order_date)
+),
+ventanas AS (
+    SELECT
+        mes,
+        facturacion,
+        SUM(facturacion) OVER (
+            ORDER BY mes
+        ) AS acumulado,
+        AVG(facturacion) OVER (
+            ORDER BY mes
+            ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+        ) AS media_movil_3m,
+        LAG(facturacion) OVER (
+            ORDER BY mes
+        ) AS mes_anterior
+    FROM ventas_mensuales
+)
+SELECT
+    mes,
+    ROUND(facturacion, 2) AS facturacion,
+    ROUND(acumulado, 2) AS acumulado,
+    ROUND(media_movil_3m, 2) AS media_movil_3m,
+    ROUND(mes_anterior, 2) AS mes_anterior,
+    ROUND(
+        (facturacion - mes_anterior) * 100 /
+        NULLIF(mes_anterior, 0),
+        2
+    ) AS variacion_pct
+FROM ventanas
+ORDER BY mes;
+```
+
+**Resultado:**
+
+![Resultado pregunta 19](img/p19.png)
+
+**Comentario:**
+Las funciones de ventana permiten calcular el acumulado, la media móvil y el mes anterior sin perder el detalle mensual. En enero LAG() devuelve NULL, por lo que la variación porcentual también queda en NULL..
+
+## Pregunta 20 — Cuadro de mando anual por categoría
+**Enunciado:** Para cada categoría, obtén los **tres productos con mayor facturación**. Muestra la categoría, la posición dentro de la categoría, el nombre del producto, las unidades vendidas y la facturación.
+
+Incluye además una columna con la posición global del producto en el conjunto de la compañía, para que se vea qué productos son líderes de su nicho pero irrelevantes en el total.
+
+**Consulta:**
+
+```sql
+-- Facturación anual por categoría con total general
+-- 1998 solo contiene datos hasta mayo, por lo que la tendencia 1997-1998
+-- es orientativa y no representa dos años completos comparables.
+WITH ventas AS (
+    SELECT
+        c.category_name AS categoria,
+        EXTRACT(YEAR FROM o.order_date)::integer AS anio,
+        od.unit_price::numeric * od.quantity *
+        (1 - od.discount::numeric) AS importe
+    FROM categories c
+    INNER JOIN products p
+        ON c.category_id = p.category_id
+    INNER JOIN order_details od
+        ON p.product_id = od.product_id
+    INNER JOIN orders o
+        ON od.order_id = o.order_id
+),
+resumen AS (
+    SELECT
+        categoria,
+        GROUPING(categoria) AS es_total,
+        COALESCE(
+            SUM(importe) FILTER (WHERE anio = 1996),
+            0
+        ) AS f_1996,
+        COALESCE(
+            SUM(importe) FILTER (WHERE anio = 1997),
+            0
+        ) AS f_1997,
+        COALESCE(
+            SUM(importe) FILTER (WHERE anio = 1998),
+            0
+        ) AS f_1998,
+        SUM(importe) AS total
+    FROM ventas
+    GROUP BY ROLLUP(categoria)
+),
+totales AS (
+    SELECT
+        *,
+        MAX(total) FILTER (
+            WHERE es_total = 1
+        ) OVER () AS total_compania
+    FROM resumen
+)
+SELECT
+    COALESCE(categoria, 'TOTAL GENERAL') AS categoria,
+    ROUND(f_1996, 2) AS f_1996,
+    ROUND(f_1997, 2) AS f_1997,
+    ROUND(f_1998, 2) AS f_1998,
+    ROUND(total, 2) AS total,
+    ROUND(
+        total * 100 / total_compania,
+        2
+    ) AS peso_pct,
+    CASE
+        WHEN es_total = 1 THEN '-'
+        WHEN f_1998 > f_1997 THEN 'CRECIÓ'
+        WHEN f_1998 < f_1997 THEN 'DECRECIÓ'
+        ELSE 'IGUAL'
+    END AS tendencia
+FROM totales
+ORDER BY es_total, categoria;
+```
+
+**Resultado:**
+
+![Resultado pregunta 20](img/p20.png)
+
+**Comentario:**
+FILTER permite pivotar la facturación de cada año en columnas separadas y ROLLUP genera automáticamente la fila de totales generales. El peso se calcula respecto a la facturación total mediante una función de ventana; la tendencia 1997-1998 debe interpretarse con cautela porque 1998 solo contiene datos hasta mayo.
