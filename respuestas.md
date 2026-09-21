@@ -164,14 +164,22 @@ ORDER BY facturacion DESC;
 
 **Comentario:** Agrupo las líneas de pedido por categoría para obtener su facturación total y cuento los productos distintos. Uso HAVING porque el filtro de 100.000 € se aplica después de calcular la suma de cada categoría.
 
-## Pregunta 7 — 
+## Pregunta 7 — Clientes sin actividad comercial
 
-**Enunciado:** 
+**Enunciado:** Lista todos los clientes con el número de pedidos que ha realizado cada uno y la fecha de su último pedido. Los clientes sin ningún pedido deben aparecer igualmente, con un 0 en el conteo y el texto 'SIN PEDIDOS' en lugar de la fecha. Ordena de forma que los clientes inactivos aparezcan primero.
 
 **Consulta:**
 
 ```sql
--- Información sobre el pedido 10248
+-- Todos los clientes activos o no con su número de pedidos y último pedido
+SELECT c.company_name AS cliente, 
+		c.country AS pais, 
+		COUNT(o.order_id) AS num_pedidos,
+		COALESCE(MAX(o.order_date)::text, 'SIN PEDIDOS') AS ultimo_pedido
+FROM customers c
+LEFT JOIN orders o ON c.customer_id = o.customer_id
+GROUP BY c.customer_id, c.company_name, c.country
+ORDER BY num_pedidos;
 
 ```
 
@@ -179,4 +187,114 @@ ORDER BY facturacion DESC;
 
 ![Resultado pregunta 7](img/p07.png)
 
-**Comentario:**.
+**Comentario:** Se filtra también por c.customer_id para asegurarnos que se cree un registro por cada cliente existente. 
+El `LEFT JOIN`es necesario porque nos asegura que TODOS los cliente sean incluidos. `COUNT(o.order_id)` para asegurarnos que toma el número de pedidos realmente, y no tome en cuenta el `NULL` como un registro. 
+
+## Pregunta 8 — Organigrama de la fuerza de ventas
+**Enunciado:** Muestra cada empleado con su nombre completo, su cargo, el nombre completo de la persona a la que reporta y el cargo de esa persona. El empleado que no reporta a nadie debe aparecer también, con el texto 'DIRECCIÓN GENERAL' en el campo del responsable.
+
+
+**Consulta:**
+
+```sql
+--Organigrama del departamento comercial en formato tabla.
+SELECT emp.first_name || ' ' || emp.last_name AS empleado,
+		emp.title AS cargo,
+		COALESCE(
+			jefe .first_name || ' ' || jefe .last_name, 'DIRECCIÓN GENERAL'
+		) AS responsable,
+		jefe.title AS cargo_responsable
+FROM employees emp
+LEFT JOIN employees jefe 
+	ON emp.reports_to = jefe .employee_id
+ORDER BY empleado;
+```
+
+**Resultado:**
+
+![Resultado pregunta 8](img/p08.png)
+
+**Comentario:** Se hace un `SELF-JOIN` con un `LEFT JOIN` desde empleados de manera que se conserva aquellos empleados que no tienen jefe. Se nombran las dos tablas distintas `emp` y `jefe`. Además de eso se usa `COALESCE()` para cuando el jefe de un empleado no señale a nadie, aparezca la dirección general. 
+
+## Pregunta 9 — Rejilla de cobertura categoría × año
+**Enunciado:** Genera todas las combinaciones posibles de las 8 categorías con los 3 años del histórico (24 filas) y asocia a cada combinación su facturación. Ordena por categoría y año.
+
+
+**Consulta:**
+
+```sql
+-- Rejilla completa de facturación por categoria y año, sin huecos.
+SELECT
+    c.category_name AS categoria,
+    a.anio,
+    COALESCE(ROUND(v.facturacion, 2), 0) AS facturacion
+FROM categories c
+CROSS JOIN (
+    VALUES (1996), (1997), (1998)) AS a(anio)
+LEFT JOIN (
+    SELECT
+        p.category_id,
+        EXTRACT(YEAR FROM o.order_date)::integer AS anio,
+        SUM(
+            od.unit_price::numeric * od.quantity *
+            (1 - od.discount::numeric)
+        ) AS facturacion
+    FROM orders o
+    INNER JOIN order_details od
+        ON o.order_id = od.order_id
+    INNER JOIN products p
+        ON od.product_id = p.product_id
+    GROUP BY
+        p.category_id,
+        EXTRACT(YEAR FROM o.order_date)
+) y
+    ON c.category_id = y.category_id
+    AND a.anio = y.anio
+ORDER BY c.category_name, a.anio;
+```
+
+**Resultado:**
+
+![Resultado pregunta 9](img/p09.png)
+
+**Comentario:** . El CROSS JOIN genera primero las 24 combinaciones posibles entre 8 categorías y 3 años. Después, el LEFT JOIN incorpora la facturación real y COALESCE() convierte en 0 las combinaciones sin ventas.
+
+
+## Pregunta 10 —  Mapa de países: clientes frente a proveedores
+**Enunciado:** Expansión internacional quiere una única tabla que muestre, para cada país en el que la compañía tiene presencia, cuántos clientes y cuántos proveedores hay. Deben aparecer los países que solo tienen clientes, los que solo tienen proveedores y los que tienen ambos.
+
+
+**Consulta:**
+
+```sql
+-- Presencia de clientes y proveedores por país
+SELECT COALESCE(s.pais, c.pais) AS pais,
+		s.num_proveedores,
+		c.num_clientes,
+		CASE 
+			WHEN num_proveedores IS NULL THEN 'SOLO CLIENTES'
+			WHEN num_clientes IS NULL THEN 'SOLO PROVEEDORES'
+			ELSE 'AMBOS'
+		END AS tipo_presencia
+
+FROM (
+	SELECT country AS pais,
+			COUNT(*) AS num_proveedores
+	FROM suppliers
+	GROUP BY country
+) s
+FULL JOIN (
+	SELECT country AS pais,
+			COUNT(*) AS num_clientes
+	FROM customers
+	GROUP BY country
+) c 
+		USING(pais)
+ORDER BY pais;
+```
+
+**Resultado:**
+
+![Resultado pregunta 10](img/p10.png)
+
+**Comentario:** . Agrupo primero clientes y proveedores por país y después uso FULL JOIN para conservar países presentes solo en uno de los dos grupos. COALESCE(c.pais, p.pais) permite obtener siempre el país correcto independientemente del lado del que proceda.
