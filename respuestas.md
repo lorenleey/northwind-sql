@@ -344,7 +344,7 @@ ORDER BY origen, pais;
 
 **Comentario:** Uso UNION ALL porque se quiere conservar todos los contactos aunque coincidan sus datos. Las tres consultas devuelven las mismas cinco columnas y en el mismo orden. 
 
-## ### Pregunta 12 — Mercados con desequilibrio
+## Pregunta 12 — Mercados con desequilibrio
 
 **Enunciado:** Resuelve las dos preguntas en dos consultas independientes:
 
@@ -391,7 +391,7 @@ ORDER BY pais;
 **Comentario:** EXCEPT devuelve los países presentes en clientes pero no en proveedores, o sea los que están en A pero no en B, mientras que INTERSECT devuelve los comunes a ambos conjuntos, o sea los que está en A y en B. Estos operadores eliminan duplicados automáticamente. 
 Manera más larga:
 
-````sql
+```sql
 SELECT DISTINCT c.country AS pais
 	FROM customers c
 	LEFT JOIN suppliers s
@@ -399,3 +399,110 @@ SELECT DISTINCT c.country AS pais
 		WHERE s.supplier_id IS NULL 
 	ORDER BY pais;
 ```
+
+##  Pregunta 13 — Clientes que nunca han comprado pescado
+**Enunciado:** Localiza los clientes que nunca han incluido un producto de la categoría 'Seafood' en ninguno de sus pedidos. Muestra el nombre del cliente, su país y el número total de pedidos que sí ha realizado, de mayor a menor.
+
+
+**Consulta:**
+
+```sql
+-- Lista de clientes que no han pedido pescado
+SELECT 
+	c.company_name AS cliente,
+	c.country AS pais, 
+	COUNT(o.order_id) AS pedidos_realizados
+FROM customers c 
+LEFT JOIN orders o ON c.customer_id = o.customer_id
+WHERE NOT EXISTS (
+		SELECT 1
+		FROM orders o2
+		INNER JOIN order_details od 
+			ON o2.order_id = od.order_id
+		INNER JOIN products p
+			ON od.product_id = p.product_id
+		INNER JOIN categories ca
+			ON p.category_id = ca.category_id
+		WHERE o2.customer_id = c.customer_id
+		AND ca.category_name = 'Seafood'
+)
+GROUP BY c.customer_id, c.company_name, c.country
+ORDER BY pedidos_realizados DESC;
+
+```
+
+**Resultado:**
+
+![Resultado pregunta 13](img/p13.png)
+
+**Comentario:** NOT EXISTS comprueba para cada cliente que no exista ningún pedido con productos de Seafood. Uso LEFT JOIN fuera de la subconsulta para que también puedan aparecer clientes con cero pedidos, porque igual tampoco han pedido pescado nunca
+
+## Pregunta 14 — Productos por encima de la media
+**Enunciado:** Muestra los productos activos cuyo precio unitario supere el precio medio de todo el catálogo. Incluye en cada fila el precio del producto, el precio medio general y la diferencia entre ambos, todo redondeado a dos decimales. Ordena por diferencia descendente.
+
+**Consulta:**
+
+```sql
+-- Productos activos cuyo precio supera la media de todo el catálogo
+SELECT 
+	p.product_name AS producto, 
+	ROUND(unit_price::numeric,2) AS precio,
+	ROUND((SELECT AVG(unit_price::numeric) 
+			FROM products),2) AS precio_medio_catalogo,
+	ROUND(p.unit_price::numeric - 
+				(SELECT AVG(unit_price::numeric) 
+			FROM products),2) AS diferencia
+FROM products p 
+WHERE p.unit_price::numeric >
+	(SELECT 
+		AVG(unit_price::numeric) AS precio_medio
+		FROM products)
+AND p.discontinued = 0
+ORDER BY diferencia DESC;
+
+```
+
+**Resultado:**
+
+![Resultado pregunta 14](img/p14.png)
+
+**Comentario:** La subconsulta escalar calcula un único precio medio para todo el catálogo. Después se utiliza tanto para filtrar los productos activos como para calcular cuánto supera cada producto esa media. Uso de ::numeric y ROUND(...,2). 
+
+## Pregunta 15 — Ticket medio por cliente
+**Enunciado:** Calcula, para cada cliente que haya comprado alguna vez, el número de pedidos, el importe total acumulado y el importe medio por pedido. Muestra los 15 clientes con mayor ticket medio..
+
+**Consulta:**
+
+```sql
+-- Los 15 clientes con mayor importe medio por pedido
+SELECT
+    c.company_name AS cliente,
+    c.country AS pais,
+    COUNT(ped.order_id) AS num_pedidos,
+    ROUND(SUM(ped.importe_pedido), 2) AS importe_total,
+    ROUND(AVG(ped.importe_pedido), 2) AS ticket_medio
+FROM customers c
+INNER JOIN (
+    SELECT
+        o.order_id,
+        o.customer_id,
+        SUM(
+            od.unit_price::numeric * od.quantity *
+            (1 - od.discount::numeric)
+        ) AS importe_pedido
+    FROM orders o
+    INNER JOIN order_details od
+        ON o.order_id = od.order_id
+    GROUP BY o.order_id, o.customer_id
+) ped
+    ON c.customer_id = ped.customer_id
+GROUP BY c.customer_id, c.company_name, c.country
+ORDER BY ticket_medio DESC
+LIMIT 15;
+```
+
+**Resultado:**
+
+![Resultado pregunta 15](img/p15.png)
+
+**Comentario:** Primero calculo el importe total de cada pedido en la subconsulta ped. Después agrupo esos pedidos por cliente para calcular correctamente el total y el ticket medio, ya que promediar directamente las líneas produciría un resultado incorrecto. 
