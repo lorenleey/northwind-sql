@@ -82,15 +82,27 @@ AND units_in_stock >= reorder_level;
 **Consulta:**
 
 ```sql
---Cada producto con su categoria y datos de contacto del proveedor
-
+-- Productos suministrados por empresas de Italia, Francia o España
+SELECT
+    p.product_name AS producto,
+    c.category_name AS categoria,
+    s.company_name AS proveedor,
+    s.country AS pais,
+    s.city AS ciudad
+FROM products p
+INNER JOIN categories c
+    ON p.category_id = c.category_id
+INNER JOIN suppliers s
+    ON p.supplier_id = s.supplier_id
+WHERE s.country IN ('Italy', 'France', 'Spain')
+ORDER BY s.country, p.product_name;
 ```
 
 **Resultado:**
 
 ![Resultado pregunta 4](img/p04.png)
 
-**Comentario:** 
+**Comentario:** Se usa INNER JOIN porque es necesario tomar las coincidencias en todas las tablas donde los datos estén llenos, es decir productos con categoría y proveedor asociado. El país se encuentra en la tabla `suppliers` 
 
 ## Pregunta 5 — Detalle valorizado de un pedido
 
@@ -99,13 +111,72 @@ AND units_in_stock >= reorder_level;
 **Consulta:**
 
 ```sql
--- Número de clientes en cada país, incluido cuantas ciudades hay de cada país ordenado de mayor número de clientes a menos
-
+-- Información sobre el pedido 10248
+SELECT c.company_name AS cliente,
+		o.order_date AS fecha_pedido,
+		p.product_name AS producto,
+    	ROUND(od.unit_price::numeric, 2) AS precio_unitario,
+		od.quantity AS cantidad,
+		od.discount AS descuento,
+		 ROUND(
+        		od.unit_price::numeric * od.quantity *
+        		(1 - od.discount::numeric),2)
+		AS importe_linea
+FROM orders o 
+INNER JOIN customers c USING(customer_id)
+INNER JOIN order_details od USING(order_id)
+INNER JOIN products p USING (product_id)
+WHERE o.order_id = 10248;
 ```
 
 **Resultado:**
 
 ![Resultado pregunta 5](img/p05.png)
 
-**Comentario:** Se utiliza HAVING() al tener un GROUP BY porque el filtro pasa por los grupos creados, uno por cada pais. Adicional a eso, se usa el COUNT(DISCTINCT...) porque no se desea contar todas las ciudades en cada país de cada cliente, sino el número de ciudades activas (con clientes) en cada país.
+**Comentario:** Se usa USING(columna), con las primary key que relacionan las tablas consultadas entre sí y de esta manera la columna no aparece duplicada en el resultado.
 
+## Pregunta 6 — Ranking de categorías por facturación
+
+**Enunciado:** Calcula la facturación total de cada categoría durante toda la historia de la compañía. Muestra el nombre de la categoría, el número de líneas de pedido que ha generado, el número de productos distintos vendidos y la facturación total. Incluye únicamente las categorías que superen los 100.000 euros de facturación, ordenadas de mayor a menor..
+
+**Consulta:**
+
+```sql
+-- Facturación total de cada categoría de producto durante toda la historia.
+SELECT c.category_name AS categoria, 
+		COUNT(*) AS num_lineas,
+		COUNT(DISTINCT od.product_id) AS num_productos,
+		ROUND(SUM(
+            		od.unit_price::numeric * od.quantity *(1 - od.discount::numeric)),2) AS facturacion	
+FROM categories c
+INNER JOIN products p 
+	ON c.category_id = p.category_id
+INNER JOIN order_details od 
+	ON p.product_id = od.product_id
+GROUP BY c.category_name
+HAVING (SUM(od.unit_price::numeric * od.quantity *(1 - od.discount::numeric))) > 100000
+ORDER BY facturacion DESC;
+```
+
+**Resultado:**
+
+![Resultado pregunta 6](img/p06.png)
+
+**Comentario:** Agrupo las líneas de pedido por categoría para obtener su facturación total y cuento los productos distintos. Uso HAVING porque el filtro de 100.000 € se aplica después de calcular la suma de cada categoría.
+
+## Pregunta 7 — 
+
+**Enunciado:** 
+
+**Consulta:**
+
+```sql
+-- Información sobre el pedido 10248
+
+```
+
+**Resultado:**
+
+![Resultado pregunta 7](img/p07.png)
+
+**Comentario:**.
