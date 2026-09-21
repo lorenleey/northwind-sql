@@ -469,7 +469,7 @@ ORDER BY diferencia DESC;
 **Comentario:** La subconsulta escalar calcula un único precio medio para todo el catálogo. Después se utiliza tanto para filtrar los productos activos como para calcular cuánto supera cada producto esa media. Uso de ::numeric y ROUND(...,2). 
 
 ## Pregunta 15 — Ticket medio por cliente
-**Enunciado:** Calcula, para cada cliente que haya comprado alguna vez, el número de pedidos, el importe total acumulado y el importe medio por pedido. Muestra los 15 clientes con mayor ticket medio..
+**Enunciado:** Calcula, para cada cliente que haya comprado alguna vez, el número de pedidos, el importe total acumulado y el importe medio por pedido. Muestra los 15 clientes con mayor ticket medio.
 
 **Consulta:**
 
@@ -506,3 +506,101 @@ LIMIT 15;
 ![Resultado pregunta 15](img/p15.png)
 
 **Comentario:** Primero calculo el importe total de cada pedido en la subconsulta ped. Después agrupo esos pedidos por cliente para calcular correctamente el total y el ticket medio, ya que promediar directamente las líneas produciría un resultado incorrecto. 
+
+## Pregunta 16 — El producto más caro de cada categoría
+**Enunciado:** Para cada categoría, muestra el producto con el precio unitario más alto. Incluye el nombre de la categoría, el nombre del producto, su precio y el precio medio de su categoría.
+
+Resuélvelo con una **subconsulta correlacionada**: para cada producto, comprueba si su precio coincide con el máximo de su propia categoría.
+
+**Consulta:**
+
+```sql
+-- Producto más caro de cada categoría y precio medio de su categoría
+SELECT c.category_name AS categoria, 
+		p.product_name AS producto,
+		ROUND(p.unit_price:: numeric, 2) AS precio, 
+		ROUND (
+				(SELECT AVG(p2.unit_price::numeric) 
+				FROM products p2
+				WHERE p2.category_id = p.category_id
+		),2) AS precio_medio_categoria
+FROM products p
+INNER JOIN categories c
+	ON p.category_id = c.category_id
+WHERE p.unit_price = (
+			SELECT MAX(p3.unit_price)
+			FROM products p3
+			WHERE p3.category_id = p.category_id
+)
+ORDER BY c.category_name;
+```
+
+**Resultado:**
+
+![Resultado pregunta 16](img/p16.png)
+
+**Comentario:**
+Las subconsultas están correlacionadas mediante category_id, por lo que el máximo y la media se calculan dentro de la categoría de cada producto. Si dos productos comparten exactamente el precio máximo, ambos aparecerán. En una tabla con millones de filas este patrón puede ser costoso, ya que conceptualmente la subconsulta debe evaluarse repetidamente; para grandes volúmenes sería preferible calcular previamente los agregados por categoría mediante una CTE o una subconsulta agrupada
+
+## Pregunta 17 — Segmentación ABC de la cartera de clientes
+**Enunciado:** Usando expresiones de tabla común (CTE), construye una consulta que:
+
+1. Calcule la facturación total de cada cliente.
+2. Divida los clientes en **cuartiles** según esa facturación.
+3. Asigne una etiqueta de segmento: `'A - Estratégico'` al cuartil superior, `'B - Consolidado'` al segundo, `'C - Ocasional'` al tercero y `'D - Marginal'` al cuarto.
+4. Devuelva, por segmento, el número de clientes, la facturación total del segmento y el porcentaje que representa sobre el total de la compañía.
+
+**Consulta:**
+
+```sql
+-- Segmentación de clientes en cuartiles según su facturación total
+WITH facturacion_cliente AS (
+	SELECT c.customer_id, 
+			c.company_name,
+			COALESCE(
+				SUM(
+					od.unit_price::numeric * od.quantity *
+					(1- od.discount::numeric)
+				),
+			0) AS facturacion
+	FROM customers c
+	LEFT JOIN orders o
+		ON c.customer_id = o.customer_id
+	LEFT JOIN order_details od
+		ON o.order_id = od.order_id
+	GROUP BY c.customer_id, c.customer_id
+), 
+cuartiles AS (
+		SELECT *, 
+		NTILE(4) OVER (ORDER BY facturacion DESC) AS cuartil 
+		FROM facturacion_cliente
+), 
+segmentos AS (
+		SELECT *,
+		CASE 
+			WHEN cuartil = 1 THEN 'A. Estratégico' 
+			WHEN cuartil = 2 THEN 'B. Consolidado' 
+			WHEN cuartil = 3 THEN 'C. Ocasional' 
+			ELSE 'D. Marginal' 
+		END AS segmento
+		FROM cuartiles
+)
+SELECT 
+	segmento, 
+	COUNT(*) AS num_clientes,
+	ROUND(SUM(facturacion),2) AS facturacion_segmento, 
+	ROUND(
+		SUM(facturacion) *100 / 
+		SUM(SUM(facturacion)) OVER (),
+		2) AS porcentaje_sobre_total
+	FROM segmentos
+	GROUP BY segmento
+	ORDER BY segmento
+```
+
+**Resultado:**
+
+![Resultado pregunta 17](img/p17.png)
+
+**Comentario:**
+Las CTE separan el cálculo en etapas: facturación por cliente, creación de cuartiles y asignación del segmento. NTILE(4) ordena de mayor a menor facturación, por lo que el primer cuartil representa a los clientes de mayor valor. 
