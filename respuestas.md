@@ -227,7 +227,7 @@ ORDER BY empleado;
 SELECT
     c.category_name AS categoria,
     a.anio,
-    COALESCE(ROUND(v.facturacion, 2), 0) AS facturacion
+    COALESCE(ROUND(y.facturacion, 2), 0) AS facturacion
 FROM categories c
 CROSS JOIN (
     VALUES (1996), (1997), (1998)) AS a(anio)
@@ -298,3 +298,104 @@ ORDER BY pais;
 ![Resultado pregunta 10](img/p10.png)
 
 **Comentario:** . Agrupo primero clientes y proveedores por país y después uso FULL JOIN para conservar países presentes solo en uno de los dos grupos. COALESCE(c.pais, p.pais) permite obtener siempre el país correcto independientemente del lado del que proceda.
+
+
+## Pregunta Pregunta 11 — Directorio unificado de contactos
+**Enunciado:** Construye una sola tabla que reúna los contactos de clientes, los de proveedores y los empleados. Cada fila debe indicar el origen (`'CLIENTE'`, `'PROVEEDOR'`, `'EMPLEADO'`), el nombre de la persona de contacto **en mayúsculas**, la organización a la que pertenece, la ciudad y el país. Para los empleados, la organización es el literal `'NORTHWIND TRADERS'` y el nombre de contacto se forma concatenando nombre y apellidos.
+
+Ordena por origen y luego por país.
+
+
+**Consulta:**
+
+```sql
+-- Exportación única con todos los contactos de la compañia
+SELECT 'CLIENTE' AS origen,
+	UPPER(contact_name) AS contacto,
+	company_name AS organizacion,
+	city AS ciudad,
+	country AS pais
+FROM customers
+
+UNION ALL 
+
+SELECT 'PROVEEDOR',
+		UPPER(contact_name),
+		company_name,
+		city,
+		country
+FROM suppliers
+
+UNION ALL 
+
+SELECT 'EMPLEADO',
+		UPPER(first_name) || ' ' || UPPER(last_name),
+		'NORTHWIND TRADERS' ,
+		city,
+		country
+FROM employees
+
+ORDER BY origen, pais;
+```
+
+**Resultado:**
+
+![Resultado pregunta 11](img/p11.png)
+
+**Comentario:** Uso UNION ALL porque se quiere conservar todos los contactos aunque coincidan sus datos. Las tres consultas devuelven las mismas cinco columnas y en el mismo orden. 
+
+## ### Pregunta 12 — Mercados con desequilibrio
+
+**Enunciado:** Resuelve las dos preguntas en dos consultas independientes:
+
+**a)** Países donde hay clientes pero **ningún** proveedor.
+**b)** Países donde hay **a la vez** clientes y proveedores.
+
+Ordena ambos resultados alfabéticamente.
+
+Ordena por origen y luego por país.
+
+
+**Consulta:**
+
+```sql
+-- Países donde hay clientes pero ningún proveedor.
+SELECT country AS pais
+	FROM customers 
+
+EXCEPT 
+	SELECT country
+	FROM suppliers
+
+ORDER BY pais;
+
+-- Países donde hay a la vez clientes y proveedores
+SELECT country AS pais
+	FROM customers 
+
+INTERSECT 
+
+	SELECT country
+	FROM suppliers
+
+ORDER BY pais;
+```
+
+**Resultado:**
+
+![Resultado pregunta 12 a](img/p12-a.png)
+
+![Resultado pregunta 12 b](img/p12-b.png)
+
+
+**Comentario:** EXCEPT devuelve los países presentes en clientes pero no en proveedores, o sea los que están en A pero no en B, mientras que INTERSECT devuelve los comunes a ambos conjuntos, o sea los que está en A y en B. Estos operadores eliminan duplicados automáticamente. 
+Manera más larga:
+
+````sql
+SELECT DISTINCT c.country AS pais
+	FROM customers c
+	LEFT JOIN suppliers s
+		ON c.country = s.country
+		WHERE s.supplier_id IS NULL 
+	ORDER BY pais;
+```
